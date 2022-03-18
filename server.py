@@ -1,29 +1,44 @@
 from socket import socket, AF_INET, SOCK_STREAM
-from threading import Thread
-from multiprocessing.connection import Listener
-import hmac
+from threading import Thread 
+from queue import Queue
 
-def echo_handler(address, client_sock):
-    print(f'Connection from {address} established...')
+clients = []
+nicknames = []
+def broadcast(msg):
+    for client in clients:
+        client.send(msg)
+
+def client_handler(q):
+    sock, client_addr = q.get()
+    clients.append(sock)
+    sock.send(b'Enter Nickname: ')
+    nickname = sock.recv(1024) +b': '
+    print(f'{nickname} connected...')
     while True:
-        msg = client_sock.recv(1024)
-        if not msg or msg == '#quit':
+        msg = sock.recv(1024)
+        if not msg:
             break
-        client_sock.sendall(msg)
-    client_sock.close()
+        msg = nickname + msg
+        broadcast(msg)
+        
+    sock.close()
 
-def echo_server(address, backlog = 5):
-    # initializing socket to sock(using INET family protocols, STREAM is a TCP
-    # packet ordered connection)
-    sock = socket(AF_INET, SOCK_STREAM)
-    sock.bind(address)
-    sock.listen(backlog)
-    while True:
-        client_sock, client_addr = sock.accept()
-        echo_handler(client_addr, client_sock)
+def server(addr, nworkers):
+    # Initialize Queue Object for communication between preallocated threads
+    q = Queue()
+    # prespawn worker threads manually
+    for n in range(nworkers):
+        t = Thread(target=client_handler, args = (q,))
+        t.start()
 
+    with socket(AF_INET, SOCK_STREAM) as s:
+        s.bind(addr)
+        s.listen(5)
+        while True:
+            client_sock, client_addr = s.accept()
+            q.put((client_sock, client_addr))
 
-if __name__ == '__main__':
-    echo_server(('', 20000))
+host = 'localhost'
+port = 20000
 
-s = socket(AF_INET, SOCK_STREAM)
+server((host, port), 16)
